@@ -1,0 +1,2474 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# SQL. Анализ информации о книгах, издательствах, авторах и обзорах."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Во время короновируса люди меньше передвигались и появилось больше времени для чтения. Мало кто сейчас ходит в библиотеки, очень немногие могут похвастаться богатыми библиотеками, а у некоторых и нет места на эти библиотеки,а потом и новые книги постоянно появляются, не всегда есть возможность покупать все, что хочется  прочитать. Но к счастью появились приложения для чтения. Это заметили стартаперы — и бросились создавать приложения для тех, кто любит читать.\n",
+    "\n",
+    "Задача — проанализировать базу данных крупного сервиса для чтения книг по подписке.\n",
+    "У нас имеется информация о книгах, издательствах, авторах, а также пользовательские обзоры книг. \n",
+    "\n",
+    "### Описание данных\n",
+    "\n",
+    "**Таблица `books`**\n",
+    "\n",
+    "Содержит данные о книгах:\n",
+    "\n",
+    "- `book_id` — идентификатор книги;\n",
+    "- `author_id` — идентификатор автора;\n",
+    "- `title` — название книги;\n",
+    "- `num_pages` — количество страниц;\n",
+    "- `publication_date` — дата публикации книги;\n",
+    "- `publisher_id` — идентификатор издателя.\n",
+    "\n",
+    "**Таблица `authors`**\n",
+    "\n",
+    "Содержит данные об авторах:\n",
+    "\n",
+    "- `author_id` — идентификатор автора;\n",
+    "- `author` — имя автора.\n",
+    "\n",
+    "**Таблица `publishers`**\n",
+    "\n",
+    "Содержит данные об издательствах:\n",
+    "\n",
+    "- `publisher_id` — идентификатор издательства;\n",
+    "- `publisher` — название издательства;\n",
+    "\n",
+    "**Таблица `ratings`**\n",
+    "\n",
+    "Содержит данные о пользовательских оценках книг:\n",
+    "\n",
+    "- `rating_id` — идентификатор оценки;\n",
+    "- `book_id` — идентификатор книги;\n",
+    "- `username` — имя пользователя, оставившего оценку;\n",
+    "- `rating` — оценка книги.\n",
+    "\n",
+    "**Таблица `reviews`**\n",
+    "\n",
+    "Содержит данные о пользовательских обзорах на книги:\n",
+    "\n",
+    "- `review_id` — идентификатор обзора;\n",
+    "- `book_id` — идентификатор книги;\n",
+    "- `username` — имя пользователя, написавшего обзор;\n",
+    "- `text` — текст обзора."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## План работы"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "1. Цель исследования\n",
+    "2. Подключение к базе данных и необходимых библиотек  \n",
+    "3. Ознакомимся с данными таблиц   \n",
+    "4. Посчитаем, сколько книг вышло после 1 января 2000 года\n",
+    "5. Для каждой книги посчитаем количество обзоров и среднюю оценку\n",
+    "6. Определим издательство, которое выпустило наибольшее число книг толще 50 страниц \n",
+    "7. Определим автора с самой высокой средней оценкой книг — учитываем только книги с 50 и более оценками\n",
+    "8. Посчитаем среднее количество обзоров от пользователей, которые поставили больше 50 оценок."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# импортируем библиотеки\n",
+    "import pandas as pd\n",
+    "from sqlalchemy import create_engine\n",
+    "from IPython.display import display"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# устанавливаем параметры\n",
+    "db_config = {'user': 'praktikum_student', # имя пользователя\n",
+    "'pwd': 'Sdf4$2;d-d30pp', # пароль\n",
+    "'host': 'rc1b-wcoijxj3yxfsf3fs.mdb.yandexcloud.net',\n",
+    "'port': 6432, # порт подключения\n",
+    "'db': 'data-analyst-final-project-db'} # название базы данных\n",
+    "connection_string = 'postgresql://{}:{}@{}:{}/{}'.format(db_config['user'],\n",
+    " db_config['pwd'],\n",
+    " db_config['host'],\n",
+    " db_config['port'],\n",
+    " db_config['db'])\n",
+    "# сохраняем коннектор\n",
+    "engine = create_engine(connection_string, connect_args={'sslmode':'require'})"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Ознакомимся с данными таблиц"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Данные таблицы books:\n"
+     ]
+    },
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>book_id</th>\n",
+       "      <th>author_id</th>\n",
+       "      <th>title</th>\n",
+       "      <th>num_pages</th>\n",
+       "      <th>publication_date</th>\n",
+       "      <th>publisher_id</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>546</td>\n",
+       "      <td>'Salem's Lot</td>\n",
+       "      <td>594</td>\n",
+       "      <td>2005-11-01</td>\n",
+       "      <td>93</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>465</td>\n",
+       "      <td>1 000 Places to See Before You Die</td>\n",
+       "      <td>992</td>\n",
+       "      <td>2003-05-22</td>\n",
+       "      <td>336</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>407</td>\n",
+       "      <td>13 Little Blue Envelopes (Little Blue Envelope...</td>\n",
+       "      <td>322</td>\n",
+       "      <td>2010-12-21</td>\n",
+       "      <td>135</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>82</td>\n",
+       "      <td>1491: New Revelations of the Americas Before C...</td>\n",
+       "      <td>541</td>\n",
+       "      <td>2006-10-10</td>\n",
+       "      <td>309</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>125</td>\n",
+       "      <td>1776</td>\n",
+       "      <td>386</td>\n",
+       "      <td>2006-07-04</td>\n",
+       "      <td>268</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   book_id  author_id                                              title  \\\n",
+       "0        1        546                                       'Salem's Lot   \n",
+       "1        2        465                 1 000 Places to See Before You Die   \n",
+       "2        3        407  13 Little Blue Envelopes (Little Blue Envelope...   \n",
+       "3        4         82  1491: New Revelations of the Americas Before C...   \n",
+       "4        5        125                                               1776   \n",
+       "\n",
+       "   num_pages publication_date  publisher_id  \n",
+       "0        594       2005-11-01            93  \n",
+       "1        992       2003-05-22           336  \n",
+       "2        322       2010-12-21           135  \n",
+       "3        541       2006-10-10           309  \n",
+       "4        386       2006-07-04           268  "
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Данные таблицы reviews:\n"
+     ]
+    },
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>review_id</th>\n",
+       "      <th>book_id</th>\n",
+       "      <th>username</th>\n",
+       "      <th>text</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>brandtandrea</td>\n",
+       "      <td>Mention society tell send professor analysis. ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>ryanfranco</td>\n",
+       "      <td>Foot glass pretty audience hit themselves. Amo...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>2</td>\n",
+       "      <td>lorichen</td>\n",
+       "      <td>Listen treat keep worry. Miss husband tax but ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>3</td>\n",
+       "      <td>johnsonamanda</td>\n",
+       "      <td>Finally month interesting blue could nature cu...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>3</td>\n",
+       "      <td>scotttamara</td>\n",
+       "      <td>Nation purpose heavy give wait song will. List...</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   review_id  book_id       username  \\\n",
+       "0          1        1   brandtandrea   \n",
+       "1          2        1     ryanfranco   \n",
+       "2          3        2       lorichen   \n",
+       "3          4        3  johnsonamanda   \n",
+       "4          5        3    scotttamara   \n",
+       "\n",
+       "                                                text  \n",
+       "0  Mention society tell send professor analysis. ...  \n",
+       "1  Foot glass pretty audience hit themselves. Amo...  \n",
+       "2  Listen treat keep worry. Miss husband tax but ...  \n",
+       "3  Finally month interesting blue could nature cu...  \n",
+       "4  Nation purpose heavy give wait song will. List...  "
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Данные таблицы authors:\n"
+     ]
+    },
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>author_id</th>\n",
+       "      <th>author</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>A.S. Byatt</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>Aesop/Laura Harris/Laura Gibbs</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>Agatha Christie</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>Alan Brennert</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>Alan Moore/David   Lloyd</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   author_id                          author\n",
+       "0          1                      A.S. Byatt\n",
+       "1          2  Aesop/Laura Harris/Laura Gibbs\n",
+       "2          3                 Agatha Christie\n",
+       "3          4                   Alan Brennert\n",
+       "4          5        Alan Moore/David   Lloyd"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Данные таблицы ratings:\n"
+     ]
+    },
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>rating_id</th>\n",
+       "      <th>book_id</th>\n",
+       "      <th>username</th>\n",
+       "      <th>rating</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>ryanfranco</td>\n",
+       "      <td>4</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>grantpatricia</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>brandtandrea</td>\n",
+       "      <td>5</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>2</td>\n",
+       "      <td>lorichen</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>2</td>\n",
+       "      <td>mariokeller</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   rating_id  book_id       username  rating\n",
+       "0          1        1     ryanfranco       4\n",
+       "1          2        1  grantpatricia       2\n",
+       "2          3        1   brandtandrea       5\n",
+       "3          4        2       lorichen       3\n",
+       "4          5        2    mariokeller       2"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Данные таблицы publishers:\n"
+     ]
+    },
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>publisher_id</th>\n",
+       "      <th>publisher</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>Ace</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>Ace Book</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>Ace Books</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>Ace Hardcover</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>Addison Wesley Publishing Company</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   publisher_id                          publisher\n",
+       "0             1                                Ace\n",
+       "1             2                           Ace Book\n",
+       "2             3                          Ace Books\n",
+       "3             4                      Ace Hardcover\n",
+       "4             5  Addison Wesley Publishing Company"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "for table in ['books','reviews','authors','ratings', 'publishers']:\n",
+    "    query= f'SELECT * FROM {table} LIMIT 5'\n",
+    "    info = pd.io.sql.read_sql(query, con = engine)\n",
+    "    \n",
+    "    print(f'Данные таблицы {table}:')\n",
+    "    display(info.head(5))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "`Books` - перед нами база данных с названиями книг, кол-м страниц, даты публикации, номер издательства и автора.  \n",
+    "`Reviews` - ники читателей, сам текст отзыва, идентифакационный номер книги и отзыва  \n",
+    "`Authors` - ФИО автора и его уникальный номер  \n",
+    "`Ratings` - хранит информацию о рейтинге, читателе, который оставил его, уникальный номер книги, уникальный номер рейтинга.  \n",
+    "`Publishers` - название издательского дома и его идентифакационный номер\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Здесь мы хранится инфо о рейтинге, читателе, который оставил его, уникальный номер книги, уникальный номер рейтинга."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Посчитаем, сколько книг вышло после 1 января 2000 года;"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "query2 = \"\"\"  SELECT COUNT (DISTINCT(book_id))\n",
+    "  FROM books\n",
+    "  WHERE publication_date> '2000-01-01';\n",
+    "  \"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>count</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>819</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   count\n",
+       "0    819"
+      ]
+     },
+     "execution_count": 15,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.io.sql.read_sql(query2, con = engine) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "После 1 января 20 года было выпущено 819 книг."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Для каждой книги посчитаем количество обзоров и среднюю оценку"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Изучим данные в таблице `ratings`"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "query3 = \"\"\"\n",
+    "  SELECT *\n",
+    " FROM ratings\n",
+    " limit 5;\n",
+    "  \"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>rating_id</th>\n",
+       "      <th>book_id</th>\n",
+       "      <th>username</th>\n",
+       "      <th>rating</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>ryanfranco</td>\n",
+       "      <td>4</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>grantpatricia</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>1</td>\n",
+       "      <td>brandtandrea</td>\n",
+       "      <td>5</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>2</td>\n",
+       "      <td>lorichen</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>2</td>\n",
+       "      <td>mariokeller</td>\n",
+       "      <td>2</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   rating_id  book_id       username  rating\n",
+       "0          1        1     ryanfranco       4\n",
+       "1          2        1  grantpatricia       2\n",
+       "2          3        1   brandtandrea       5\n",
+       "3          4        2       lorichen       3\n",
+       "4          5        2    mariokeller       2"
+      ]
+     },
+     "execution_count": 17,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.io.sql.read_sql(query3, con = engine) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "query3 = \"\"\"\n",
+    "  SELECT *\n",
+    " FROM reviews\n",
+    " limit 5;\n",
+    "  \"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>review_id</th>\n",
+       "      <th>book_id</th>\n",
+       "      <th>username</th>\n",
+       "      <th>text</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>brandtandrea</td>\n",
+       "      <td>Mention society tell send professor analysis. ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>2</td>\n",
+       "      <td>1</td>\n",
+       "      <td>ryanfranco</td>\n",
+       "      <td>Foot glass pretty audience hit themselves. Amo...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>3</td>\n",
+       "      <td>2</td>\n",
+       "      <td>lorichen</td>\n",
+       "      <td>Listen treat keep worry. Miss husband tax but ...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>4</td>\n",
+       "      <td>3</td>\n",
+       "      <td>johnsonamanda</td>\n",
+       "      <td>Finally month interesting blue could nature cu...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>5</td>\n",
+       "      <td>3</td>\n",
+       "      <td>scotttamara</td>\n",
+       "      <td>Nation purpose heavy give wait song will. List...</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   review_id  book_id       username  \\\n",
+       "0          1        1   brandtandrea   \n",
+       "1          2        1     ryanfranco   \n",
+       "2          3        2       lorichen   \n",
+       "3          4        3  johnsonamanda   \n",
+       "4          5        3    scotttamara   \n",
+       "\n",
+       "                                                text  \n",
+       "0  Mention society tell send professor analysis. ...  \n",
+       "1  Foot glass pretty audience hit themselves. Amo...  \n",
+       "2  Listen treat keep worry. Miss husband tax but ...  \n",
+       "3  Finally month interesting blue could nature cu...  \n",
+       "4  Nation purpose heavy give wait song will. List...  "
+      ]
+     },
+     "execution_count": 19,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.io.sql.read_sql(query3, con = engine) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "query_3 = \"\"\"\n",
+    "  WITH \n",
+    "  b AS (SELECT title,\n",
+    "               book_id\n",
+    "        from books),\n",
+    "  i AS (SELECT book_id,\n",
+    "               COUNT(review_id) AS review\n",
+    "     FROM reviews\n",
+    "     GROUP BY book_id),\n",
+    "  f AS (SELECT book_id,            \n",
+    "        FLOOR (AVG(rating)) AS avg_rating\n",
+    "        FROM ratings\n",
+    "        GROUP BY book_id)\n",
+    "   SELECT b.title,\n",
+    "          i.review,\n",
+    "          f.avg_rating\n",
+    "   FROM b\n",
+    "   left JOIN i on b.book_id = i.book_id\n",
+    "   left JOIN f on b.book_id = f.book_id   \n",
+    "   order by b.book_id;\n",
+    "  \"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>title</th>\n",
+       "      <th>review</th>\n",
+       "      <th>avg_rating</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>'Salem's Lot</td>\n",
+       "      <td>2.0</td>\n",
+       "      <td>3.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>1 000 Places to See Before You Die</td>\n",
+       "      <td>1.0</td>\n",
+       "      <td>2.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>13 Little Blue Envelopes (Little Blue Envelope...</td>\n",
+       "      <td>3.0</td>\n",
+       "      <td>4.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>1491: New Revelations of the Americas Before C...</td>\n",
+       "      <td>2.0</td>\n",
+       "      <td>4.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>1776</td>\n",
+       "      <td>4.0</td>\n",
+       "      <td>4.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>...</th>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>995</th>\n",
+       "      <td>Wyrd Sisters (Discworld  #6; Witches #2)</td>\n",
+       "      <td>3.0</td>\n",
+       "      <td>3.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>996</th>\n",
+       "      <td>Xenocide (Ender's Saga  #3)</td>\n",
+       "      <td>3.0</td>\n",
+       "      <td>3.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>997</th>\n",
+       "      <td>Year of Wonders</td>\n",
+       "      <td>4.0</td>\n",
+       "      <td>3.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>998</th>\n",
+       "      <td>You Suck (A Love Story  #2)</td>\n",
+       "      <td>2.0</td>\n",
+       "      <td>4.0</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>999</th>\n",
+       "      <td>Zen and the Art of Motorcycle Maintenance: An ...</td>\n",
+       "      <td>4.0</td>\n",
+       "      <td>3.0</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>1000 rows × 3 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "                                                 title  review  avg_rating\n",
+       "0                                         'Salem's Lot     2.0         3.0\n",
+       "1                   1 000 Places to See Before You Die     1.0         2.0\n",
+       "2    13 Little Blue Envelopes (Little Blue Envelope...     3.0         4.0\n",
+       "3    1491: New Revelations of the Americas Before C...     2.0         4.0\n",
+       "4                                                 1776     4.0         4.0\n",
+       "..                                                 ...     ...         ...\n",
+       "995           Wyrd Sisters (Discworld  #6; Witches #2)     3.0         3.0\n",
+       "996                        Xenocide (Ender's Saga  #3)     3.0         3.0\n",
+       "997                                    Year of Wonders     4.0         3.0\n",
+       "998                        You Suck (A Love Story  #2)     2.0         4.0\n",
+       "999  Zen and the Art of Motorcycle Maintenance: An ...     4.0         3.0\n",
+       "\n",
+       "[1000 rows x 3 columns]"
+      ]
+     },
+     "execution_count": 23,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.io.sql.read_sql(query_3, con = engine) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Определим издательство, которое выпустило наибольшее число книг толще 50 страниц — так мы исключим из анализа брошюры;"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "query4 = \"\"\"\n",
+    "  SELECT p.publisher,\n",
+    "        COUNT(b.book_id)\n",
+    "  \n",
+    "  FROM books AS b\n",
+    "  JOIN publishers AS p ON b.publisher_id = p.publisher_id\n",
+    "  WHERE b.num_pages > 50\n",
+    "  GROUP BY p.publisher\n",
+    "  ORDER BY (count) desc\n",
+    "  LIMIT 5;\n",
+    "  \"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>publisher</th>\n",
+       "      <th>count</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>Penguin Books</td>\n",
+       "      <td>42</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>Vintage</td>\n",
+       "      <td>31</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>Grand Central Publishing</td>\n",
+       "      <td>25</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>Penguin Classics</td>\n",
+       "      <td>24</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>Bantam</td>\n",
+       "      <td>19</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "                  publisher  count\n",
+       "0             Penguin Books     42\n",
+       "1                   Vintage     31\n",
+       "2  Grand Central Publishing     25\n",
+       "3          Penguin Classics     24\n",
+       "4                    Bantam     19"
+      ]
+     },
+     "execution_count": 25,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.io.sql.read_sql(query4, con = engine) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Максимальное кол-во книг с кол-м страниц болше 50 было выпущено издательством `Penguin Books`, 42 книги."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Определим автора с самой высокой средней оценкой книг — учитываем только книги с 50 и более оценками"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "query_5 = \"\"\"\n",
+    "  WITH         \n",
+    "  b AS (SELECT book_id, author_id, title\n",
+    "           FROM books),\n",
+    "         \n",
+    "  r AS (SELECT rating_id, rating, book_id\n",
+    "         FROM ratings),\n",
+    "         \n",
+    "  a AS (SELECT author_id, author\n",
+    "         FROM authors)      \n",
+    "  \n",
+    "  SELECT author, AVG(i.avg_rating)\n",
+    "  FROM (SELECT r.book_id, AVG(r.rating) AS avg_rating, b.author_id\n",
+    "        FROM r\n",
+    "        JOIN b ON r.book_id = b.book_id\n",
+    "        GROUP BY r.book_id, b.author_id\n",
+    "        HAVING COUNT(r.rating_id) >= 50) AS i     \n",
+    "  JOIN a ON i.author_id = a.author_id    \n",
+    "  GROUP BY author\n",
+    "  ORDER BY AVG(i.avg_rating) DESC\n",
+    "  LIMIT 1;\n",
+    "  \"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>author</th>\n",
+       "      <th>avg</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>J.K. Rowling/Mary GrandPré</td>\n",
+       "      <td>4.283844</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "                       author       avg\n",
+       "0  J.K. Rowling/Mary GrandPré  4.283844"
+      ]
+     },
+     "execution_count": 29,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.io.sql.read_sql(query_5, con = engine) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Посчитаем среднее количество обзоров от пользователей, которые поставили больше 50 оценок."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "query6 = \"\"\"\n",
+    "\n",
+    "  WITH         \n",
+    "  rt AS (SELECT rating_id, username\n",
+    "         FROM ratings),\n",
+    "         \n",
+    "  rw AS (SELECT review_id, username\n",
+    "         FROM reviews)      \n",
+    "  \n",
+    "  SELECT FLOOR(AVG(i.revi))\n",
+    "  FROM (SELECT COUNT(rw.review_id) AS revi\n",
+    "        FROM rw\n",
+    "        WHERE \n",
+    "           rw.username IN (SELECT username\n",
+    "                        FROM rt\n",
+    "                        GROUP BY username \n",
+    "                        HAVING COUNT(rt.rating_id) > 50)\n",
+    "        GROUP BY rw.username) AS i;\n",
+    "  \"\"\""
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>floor</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>24.0</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   floor\n",
+       "0   24.0"
+      ]
+     },
+     "execution_count": 31,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "pd.io.sql.read_sql(query6, con = engine) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "В среднем пользователи, которые поставили 50 оценок, оставляют 24 обзора."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Вывод  \n",
+    "  Мы работали с 5 таблицами, просмотрели каждую. Узнали, что , начиная с 01.01.20 г ,было выпущено 819 книг, самое активное издательство, издающее книги с 50 стр и более, это Penguin Books. Джоан Роулинг (J.K. Rowling/Mary GrandPré) - автор с наивысшим средним рейтингом среди самых популярных авторов. Оказывается есть пользователи, которые оставили более 50 оценок и в среднем они оставляют 24 обзора."
+   ]
+  }
+ ],
+ "metadata": {
+  "ExecuteTimeLog": [
+   {
+    "duration": 476,
+    "start_time": "2022-08-02T22:15:46.977Z"
+   },
+   {
+    "duration": 8741,
+    "start_time": "2022-08-02T22:16:02.869Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-02T22:16:35.059Z"
+   },
+   {
+    "duration": 84,
+    "start_time": "2022-08-02T22:16:49.981Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-02T22:17:40.982Z"
+   },
+   {
+    "duration": 10,
+    "start_time": "2022-08-02T22:17:52.231Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-02T22:19:00.691Z"
+   },
+   {
+    "duration": 11,
+    "start_time": "2022-08-02T22:19:13.853Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-02T22:27:59.584Z"
+   },
+   {
+    "duration": 11,
+    "start_time": "2022-08-02T22:28:13.130Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-02T22:28:36.984Z"
+   },
+   {
+    "duration": 24,
+    "start_time": "2022-08-02T22:28:39.271Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-02T22:29:13.080Z"
+   },
+   {
+    "duration": 12,
+    "start_time": "2022-08-02T22:29:25.549Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-02T22:30:10.731Z"
+   },
+   {
+    "duration": 26,
+    "start_time": "2022-08-02T22:30:22.868Z"
+   },
+   {
+    "duration": 212,
+    "start_time": "2022-08-02T22:30:36.576Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-02T22:31:32.291Z"
+   },
+   {
+    "duration": 16,
+    "start_time": "2022-08-02T22:31:43.864Z"
+   },
+   {
+    "duration": 529,
+    "start_time": "2022-08-03T04:45:02.655Z"
+   },
+   {
+    "duration": 5823,
+    "start_time": "2022-08-03T04:45:03.187Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T04:45:09.012Z"
+   },
+   {
+    "duration": 303,
+    "start_time": "2022-08-03T04:45:09.018Z"
+   },
+   {
+    "duration": 4,
+    "start_time": "2022-08-03T04:45:09.323Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.329Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.331Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.332Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.333Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.335Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.336Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.337Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.339Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.340Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.342Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.343Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.344Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.345Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:45:09.346Z"
+   },
+   {
+    "duration": 68,
+    "start_time": "2022-08-03T04:45:31.206Z"
+   },
+   {
+    "duration": 474,
+    "start_time": "2022-08-03T04:45:54.835Z"
+   },
+   {
+    "duration": 18179,
+    "start_time": "2022-08-03T04:45:55.311Z"
+   },
+   {
+    "duration": 4,
+    "start_time": "2022-08-03T04:46:13.491Z"
+   },
+   {
+    "duration": 262,
+    "start_time": "2022-08-03T04:46:13.497Z"
+   },
+   {
+    "duration": 68,
+    "start_time": "2022-08-03T04:46:13.761Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.831Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.832Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.833Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.834Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.835Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.836Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.837Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.839Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.840Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.841Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.842Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.844Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.845Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:46:13.847Z"
+   },
+   {
+    "duration": 11,
+    "start_time": "2022-08-03T04:47:02.923Z"
+   },
+   {
+    "duration": 540,
+    "start_time": "2022-08-03T04:47:13.873Z"
+   },
+   {
+    "duration": 6495,
+    "start_time": "2022-08-03T04:47:14.415Z"
+   },
+   {
+    "duration": 4,
+    "start_time": "2022-08-03T04:47:20.911Z"
+   },
+   {
+    "duration": 327,
+    "start_time": "2022-08-03T04:47:20.917Z"
+   },
+   {
+    "duration": 66,
+    "start_time": "2022-08-03T04:47:21.246Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.315Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.316Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.318Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.319Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.321Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.322Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.324Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.326Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.327Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.329Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.330Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.332Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.333Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-03T04:47:21.335Z"
+   },
+   {
+    "duration": 8,
+    "start_time": "2022-08-03T04:53:10.427Z"
+   },
+   {
+    "duration": 8,
+    "start_time": "2022-08-03T04:57:58.239Z"
+   },
+   {
+    "duration": 90,
+    "start_time": "2022-08-03T04:59:31.215Z"
+   },
+   {
+    "duration": 50,
+    "start_time": "2022-08-03T05:02:33.467Z"
+   },
+   {
+    "duration": 48,
+    "start_time": "2022-08-03T05:02:59.748Z"
+   },
+   {
+    "duration": 599,
+    "start_time": "2022-08-03T05:03:26.803Z"
+   },
+   {
+    "duration": 1049,
+    "start_time": "2022-08-03T05:08:06.286Z"
+   },
+   {
+    "duration": 7,
+    "start_time": "2022-08-03T05:09:20.283Z"
+   },
+   {
+    "duration": 653,
+    "start_time": "2022-08-03T19:14:10.471Z"
+   },
+   {
+    "duration": 10659,
+    "start_time": "2022-08-03T19:14:11.128Z"
+   },
+   {
+    "duration": 4,
+    "start_time": "2022-08-03T19:14:21.790Z"
+   },
+   {
+    "duration": 484,
+    "start_time": "2022-08-03T19:14:21.796Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T19:14:22.282Z"
+   },
+   {
+    "duration": 110,
+    "start_time": "2022-08-03T19:14:22.287Z"
+   },
+   {
+    "duration": 6,
+    "start_time": "2022-08-03T19:14:22.399Z"
+   },
+   {
+    "duration": 140,
+    "start_time": "2022-08-03T19:14:22.407Z"
+   },
+   {
+    "duration": 4,
+    "start_time": "2022-08-03T19:14:22.549Z"
+   },
+   {
+    "duration": 112,
+    "start_time": "2022-08-03T19:14:22.555Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T19:14:22.669Z"
+   },
+   {
+    "duration": 136,
+    "start_time": "2022-08-03T19:14:22.674Z"
+   },
+   {
+    "duration": 4,
+    "start_time": "2022-08-03T19:14:22.811Z"
+   },
+   {
+    "duration": 151,
+    "start_time": "2022-08-03T19:14:22.816Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T19:14:22.969Z"
+   },
+   {
+    "duration": 117,
+    "start_time": "2022-08-03T19:14:22.973Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T19:14:23.092Z"
+   },
+   {
+    "duration": 174,
+    "start_time": "2022-08-03T19:14:23.097Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T19:38:11.971Z"
+   },
+   {
+    "duration": 328,
+    "start_time": "2022-08-03T19:38:12.397Z"
+   },
+   {
+    "duration": 14,
+    "start_time": "2022-08-03T19:38:29.794Z"
+   },
+   {
+    "duration": 184,
+    "start_time": "2022-08-03T19:38:30.144Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T21:12:31.786Z"
+   },
+   {
+    "duration": 106,
+    "start_time": "2022-08-03T21:12:32.287Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T21:13:13.073Z"
+   },
+   {
+    "duration": 101,
+    "start_time": "2022-08-03T21:13:14.552Z"
+   },
+   {
+    "duration": 5,
+    "start_time": "2022-08-03T21:14:56.529Z"
+   },
+   {
+    "duration": 212,
+    "start_time": "2022-08-03T21:14:57.016Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T21:16:18.568Z"
+   },
+   {
+    "duration": 102,
+    "start_time": "2022-08-03T21:16:18.955Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T21:17:23.963Z"
+   },
+   {
+    "duration": 96,
+    "start_time": "2022-08-03T21:17:24.469Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T21:21:12.133Z"
+   },
+   {
+    "duration": 118,
+    "start_time": "2022-08-03T21:21:12.479Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T21:22:37.392Z"
+   },
+   {
+    "duration": 123,
+    "start_time": "2022-08-03T21:22:40.765Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T21:43:43.826Z"
+   },
+   {
+    "duration": 129,
+    "start_time": "2022-08-03T21:43:44.235Z"
+   },
+   {
+    "duration": 155,
+    "start_time": "2022-08-03T21:47:29.731Z"
+   },
+   {
+    "duration": 7,
+    "start_time": "2022-08-03T21:47:55.697Z"
+   },
+   {
+    "duration": 166,
+    "start_time": "2022-08-03T21:47:56.194Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T21:50:55.062Z"
+   },
+   {
+    "duration": 107,
+    "start_time": "2022-08-03T21:50:55.459Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T21:52:13.438Z"
+   },
+   {
+    "duration": 154,
+    "start_time": "2022-08-03T21:52:13.889Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T21:54:17.034Z"
+   },
+   {
+    "duration": 91,
+    "start_time": "2022-08-03T21:54:17.483Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T21:56:33.757Z"
+   },
+   {
+    "duration": 91,
+    "start_time": "2022-08-03T21:56:34.073Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:07:43.535Z"
+   },
+   {
+    "duration": 94,
+    "start_time": "2022-08-03T22:07:43.858Z"
+   },
+   {
+    "duration": 514,
+    "start_time": "2022-08-03T22:10:13.128Z"
+   },
+   {
+    "duration": 6643,
+    "start_time": "2022-08-03T22:10:13.644Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:10:20.289Z"
+   },
+   {
+    "duration": 346,
+    "start_time": "2022-08-03T22:10:20.294Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T22:10:20.641Z"
+   },
+   {
+    "duration": 6,
+    "start_time": "2022-08-03T22:10:20.645Z"
+   },
+   {
+    "duration": 129,
+    "start_time": "2022-08-03T22:10:20.653Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T22:10:20.784Z"
+   },
+   {
+    "duration": 92,
+    "start_time": "2022-08-03T22:10:20.787Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:10:20.881Z"
+   },
+   {
+    "duration": 127,
+    "start_time": "2022-08-03T22:10:20.885Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T22:10:21.021Z"
+   },
+   {
+    "duration": 91,
+    "start_time": "2022-08-03T22:10:21.025Z"
+   },
+   {
+    "duration": 4,
+    "start_time": "2022-08-03T22:10:21.118Z"
+   },
+   {
+    "duration": 101,
+    "start_time": "2022-08-03T22:10:21.124Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:10:21.226Z"
+   },
+   {
+    "duration": 91,
+    "start_time": "2022-08-03T22:10:21.230Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:10:21.323Z"
+   },
+   {
+    "duration": 83,
+    "start_time": "2022-08-03T22:10:21.327Z"
+   },
+   {
+    "duration": 9,
+    "start_time": "2022-08-03T22:10:21.411Z"
+   },
+   {
+    "duration": 94,
+    "start_time": "2022-08-03T22:10:21.422Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:10:21.517Z"
+   },
+   {
+    "duration": 99,
+    "start_time": "2022-08-03T22:10:21.523Z"
+   },
+   {
+    "duration": 5,
+    "start_time": "2022-08-03T22:10:21.624Z"
+   },
+   {
+    "duration": 94,
+    "start_time": "2022-08-03T22:10:21.631Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:10:21.726Z"
+   },
+   {
+    "duration": 108,
+    "start_time": "2022-08-03T22:10:21.730Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-03T22:10:21.841Z"
+   },
+   {
+    "duration": 89,
+    "start_time": "2022-08-03T22:10:21.845Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-03T22:10:21.936Z"
+   },
+   {
+    "duration": 96,
+    "start_time": "2022-08-03T22:10:21.940Z"
+   },
+   {
+    "duration": 7,
+    "start_time": "2022-08-04T05:15:48.887Z"
+   },
+   {
+    "duration": 68,
+    "start_time": "2022-08-04T05:15:49.265Z"
+   },
+   {
+    "duration": 527,
+    "start_time": "2022-08-04T05:15:57.727Z"
+   },
+   {
+    "duration": 8068,
+    "start_time": "2022-08-04T05:15:58.256Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:16:06.326Z"
+   },
+   {
+    "duration": 316,
+    "start_time": "2022-08-04T05:16:06.330Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:16:06.649Z"
+   },
+   {
+    "duration": 6,
+    "start_time": "2022-08-04T05:16:06.654Z"
+   },
+   {
+    "duration": 120,
+    "start_time": "2022-08-04T05:16:06.662Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:16:06.783Z"
+   },
+   {
+    "duration": 105,
+    "start_time": "2022-08-04T05:16:06.788Z"
+   },
+   {
+    "duration": 5,
+    "start_time": "2022-08-04T05:16:06.895Z"
+   },
+   {
+    "duration": 113,
+    "start_time": "2022-08-04T05:16:06.917Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:16:07.032Z"
+   },
+   {
+    "duration": 106,
+    "start_time": "2022-08-04T05:16:07.036Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T05:16:07.146Z"
+   },
+   {
+    "duration": 97,
+    "start_time": "2022-08-04T05:16:07.149Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:16:07.248Z"
+   },
+   {
+    "duration": 95,
+    "start_time": "2022-08-04T05:16:07.252Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T05:16:07.348Z"
+   },
+   {
+    "duration": 86,
+    "start_time": "2022-08-04T05:16:07.352Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:16:07.439Z"
+   },
+   {
+    "duration": 98,
+    "start_time": "2022-08-04T05:16:07.443Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T05:16:07.543Z"
+   },
+   {
+    "duration": 236,
+    "start_time": "2022-08-04T05:16:07.547Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.785Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.786Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.787Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.789Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.790Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.791Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.792Z"
+   },
+   {
+    "duration": 0,
+    "start_time": "2022-08-04T05:16:07.793Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T05:18:12.634Z"
+   },
+   {
+    "duration": 142,
+    "start_time": "2022-08-04T05:18:12.966Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T05:18:37.183Z"
+   },
+   {
+    "duration": 92,
+    "start_time": "2022-08-04T05:18:37.469Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:21:51.108Z"
+   },
+   {
+    "duration": 85,
+    "start_time": "2022-08-04T05:21:51.455Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T05:22:48.514Z"
+   },
+   {
+    "duration": 101,
+    "start_time": "2022-08-04T05:22:49.644Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T05:26:16.529Z"
+   },
+   {
+    "duration": 106,
+    "start_time": "2022-08-04T05:26:16.870Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:27:29.892Z"
+   },
+   {
+    "duration": 99,
+    "start_time": "2022-08-04T05:27:30.292Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:28:01.522Z"
+   },
+   {
+    "duration": 108,
+    "start_time": "2022-08-04T05:28:02.105Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:31:13.568Z"
+   },
+   {
+    "duration": 136,
+    "start_time": "2022-08-04T05:31:13.809Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:31:43.140Z"
+   },
+   {
+    "duration": 150,
+    "start_time": "2022-08-04T05:31:43.598Z"
+   },
+   {
+    "duration": 7,
+    "start_time": "2022-08-04T05:33:03.797Z"
+   },
+   {
+    "duration": 184,
+    "start_time": "2022-08-04T05:33:04.160Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:37:11.576Z"
+   },
+   {
+    "duration": 141,
+    "start_time": "2022-08-04T05:37:11.893Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T05:37:57.451Z"
+   },
+   {
+    "duration": 104,
+    "start_time": "2022-08-04T05:37:57.839Z"
+   },
+   {
+    "duration": 1577,
+    "start_time": "2022-08-04T05:58:14.419Z"
+   },
+   {
+    "duration": 137,
+    "start_time": "2022-08-04T05:58:29.530Z"
+   },
+   {
+    "duration": 265,
+    "start_time": "2022-08-04T05:59:04.221Z"
+   },
+   {
+    "duration": 288,
+    "start_time": "2022-08-04T06:00:01.521Z"
+   },
+   {
+    "duration": 257,
+    "start_time": "2022-08-04T06:03:43.134Z"
+   },
+   {
+    "duration": 203,
+    "start_time": "2022-08-04T06:06:57.032Z"
+   },
+   {
+    "duration": 348,
+    "start_time": "2022-08-04T06:07:44.258Z"
+   },
+   {
+    "duration": 339,
+    "start_time": "2022-08-04T06:08:44.425Z"
+   },
+   {
+    "duration": 350,
+    "start_time": "2022-08-04T06:09:16.826Z"
+   },
+   {
+    "duration": 75,
+    "start_time": "2022-08-04T06:10:08.060Z"
+   },
+   {
+    "duration": 339,
+    "start_time": "2022-08-04T06:10:14.974Z"
+   },
+   {
+    "duration": 336,
+    "start_time": "2022-08-04T06:13:52.140Z"
+   },
+   {
+    "duration": 332,
+    "start_time": "2022-08-04T06:14:41.328Z"
+   },
+   {
+    "duration": 331,
+    "start_time": "2022-08-04T06:20:36.943Z"
+   },
+   {
+    "duration": 495,
+    "start_time": "2022-08-04T15:24:52.667Z"
+   },
+   {
+    "duration": 10847,
+    "start_time": "2022-08-04T15:24:53.164Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T15:25:04.012Z"
+   },
+   {
+    "duration": 279,
+    "start_time": "2022-08-04T15:25:04.017Z"
+   },
+   {
+    "duration": 354,
+    "start_time": "2022-08-04T15:25:04.298Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T15:25:04.653Z"
+   },
+   {
+    "duration": 119,
+    "start_time": "2022-08-04T15:25:04.657Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:04.778Z"
+   },
+   {
+    "duration": 93,
+    "start_time": "2022-08-04T15:25:04.782Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:04.877Z"
+   },
+   {
+    "duration": 102,
+    "start_time": "2022-08-04T15:25:04.881Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:04.985Z"
+   },
+   {
+    "duration": 88,
+    "start_time": "2022-08-04T15:25:04.988Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:05.078Z"
+   },
+   {
+    "duration": 99,
+    "start_time": "2022-08-04T15:25:05.082Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T15:25:05.182Z"
+   },
+   {
+    "duration": 115,
+    "start_time": "2022-08-04T15:25:05.186Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:05.303Z"
+   },
+   {
+    "duration": 110,
+    "start_time": "2022-08-04T15:25:05.306Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T15:25:05.417Z"
+   },
+   {
+    "duration": 117,
+    "start_time": "2022-08-04T15:25:05.422Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:05.541Z"
+   },
+   {
+    "duration": 128,
+    "start_time": "2022-08-04T15:25:05.545Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T15:25:05.675Z"
+   },
+   {
+    "duration": 125,
+    "start_time": "2022-08-04T15:25:05.679Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:05.806Z"
+   },
+   {
+    "duration": 104,
+    "start_time": "2022-08-04T15:25:05.810Z"
+   },
+   {
+    "duration": 2,
+    "start_time": "2022-08-04T15:25:05.917Z"
+   },
+   {
+    "duration": 121,
+    "start_time": "2022-08-04T15:25:05.920Z"
+   },
+   {
+    "duration": 3,
+    "start_time": "2022-08-04T15:25:06.042Z"
+   },
+   {
+    "duration": 91,
+    "start_time": "2022-08-04T15:25:06.046Z"
+   }
+  ],
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.9.7"
+  },
+  "toc": {
+   "base_numbering": 1,
+   "nav_menu": {},
+   "number_sections": true,
+   "sideBar": true,
+   "skip_h1_title": true,
+   "title_cell": "Table of Contents",
+   "title_sidebar": "Contents",
+   "toc_cell": false,
+   "toc_position": {},
+   "toc_section_display": true,
+   "toc_window_display": true
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
